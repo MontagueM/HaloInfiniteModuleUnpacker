@@ -204,7 +204,7 @@ def extract_all_modules():
 
 
 if __name__ == "__main__":
-    unpack_path = "H:/HaloInfiniteUnpack/"
+    unpack_path = "H:/HIU/"
     deploy_path = "C:/Program Files (x86)/Steam/steamapps/common/MGS Test App 6/deploy/"
     module_name = "pc/globals/forge/forge_objects-rtx-new"
     # extract_module(module_name)
