@@ -45,8 +45,12 @@ def extract_module(module):
     file_size = fb.seek(0, 2)
     fb.seek(0)
     # Parsing header
-    magic = gf.read_uint64(fb)
-    assert magic == gf.get_uint64(b"mohd0\x00\x00\x00", 0), "Incorrect file given. Must be a module file."
+    magic = gf.read_uint32(fb)
+    assert magic == gf.get_uint32(b"mohd", 0), "Incorrect file given. Must be a module file."
+    version = gf.read_uint32(fb)
+    # version 48: first flight
+    # version 51: second flight
+    assert version in [48, 51], "Unsupported file version"
     unk0x08 = gf.read_uint32(fb)
     unk0x0C = gf.read_uint32(fb)
     files_count = gf.read_uint32(fb)
@@ -82,12 +86,19 @@ def extract_module(module):
     files = []
     for i in range(files_count):
         t1e = FileEntry()
-        t1e.string_offset = gf.read_uint32(fb)            # 0x00
+        if version == 48:
+            t1e.string_offset = gf.read_uint32(fb)        # 0x00
+        elif version == 51:
+            t1e.unk0x00 = gf.read_uint32(fb)              # 0x00
         t1e.parent_file_index = gf.read_int32(fb)         # 0x04
         t1e.resource_count = gf.read_uint16(fb)           # 0x08
         t1e.block_count = gf.read_uint16(fb)              # 0x0A
-        t1e.first_resource_index = gf.read_uint32(fb)     # 0x0C
-        t1e.first_block_index = gf.read_uint32(fb)        # 0x10
+        if version == 48:
+            t1e.first_resource_index = gf.read_uint32(fb) # 0x0C
+            t1e.first_block_index = gf.read_uint32(fb)    # 0x10
+        elif version == 51:
+            t1e.first_block_index = gf.read_uint32(fb)    # 0x0C
+            t1e.first_resource_index = gf.read_uint32(fb) # 0x10
         t1e.tag = fb.read(4)                              # 0x14
         t1e.local_data_offset = gf.read_uint32(fb)        # 0x18
         t1e.unk0x1C = gf.read_uint32(fb)                  # 0x1C
@@ -98,7 +109,10 @@ def extract_module(module):
         t1e.unk0x30 = gf.read_uint32(fb)                  # 0x30
         t1e.hash = fb.read(8).hex().upper()               # 0x34
         t1e.header_size = gf.read_uint32(fb)              # 0x3C
-        t1e.tag_data_size = gf.read_uint32(fb)            # 0x40
+        if version == 48:
+            t1e.tag_data_size = gf.read_uint32(fb)        # 0x40
+        elif version == 51:
+            t1e.string_offset = gf.read_uint32(fb)        # 0x40
         t1e.unk0x44 = gf.read_uint32(fb)                  # 0x44 zeros
         t1e.unk0x48 = gf.read_uint32(fb)                  # 0x48 mostly zeros, sometimes 16
         t1e.unk0x4C = gf.read_uint32(fb)                  # 0x4C two
@@ -108,6 +122,8 @@ def extract_module(module):
             a = 0
         files.append(t1e)
 
+    if version == 51:
+        fb.seek(8, 1)
     string_table_offset = fb.tell()
     for t1e in files:
         t1e.string = gf.offset_to_string(fb, string_table_offset+t1e.string_offset)
@@ -177,7 +193,11 @@ def extract_module(module):
                     decomp = decompressor.decompress(data, block.decomp_size)
                     if len(decomp_save_data) != block.decomp_offset:
                         raise Exception("Skipped data fix")
-                    decomp_save_data += decomp
+                    if decomp == False:
+                        decomp_save_data += b"\0" * block.decomp_size
+                        print("Warning: failed to decompress block in file: " + t1e.string)
+                    else:
+                        decomp_save_data += decomp
                 else:
                     tmp.seek(file_data_offset + block.comp_offset)
                     decomp = tmp.read(block.comp_size)
