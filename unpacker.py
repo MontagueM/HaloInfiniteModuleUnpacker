@@ -50,15 +50,15 @@ def extract_module(module):
     version = gf.read_uint32(fb)
     # version 48: first flight
     # version 51: second flight
-    assert version in [48, 51], "Unsupported file version"
+    assert version == 51, "Unsupported file version"
     unk0x08 = gf.read_uint32(fb)
     unk0x0C = gf.read_uint32(fb)
     files_count = gf.read_uint32(fb)
-    unk0x14 = gf.read_uint32(fb)
+    unk0x14 = gf.read_int32(fb)
     # assert unk0x14 == gf.get_uint32(b"\xFF\xFF\xFF\xFF", 0), "Header has non-FFFFFFFF 0x14"
-    unk0x18 = gf.read_uint32(fb)
+    unk0x18 = gf.read_int32(fb)
     # assert unk0x18 == gf.get_uint32(b"\x00\x00\x00\x00", 0), "Header has non-0 0x18"
-    unk0x1C = gf.read_uint32(fb)
+    unk0x1C = gf.read_int32(fb)
     # assert unk0x1C == gf.get_uint32(b"\xFF\xFF\xFF\xFF", 0), "Header has non-FFFFFFFF 0x1C"
     table3_first_value = gf.read_uint32(fb)
     string_table_length = gf.read_uint32(fb)
@@ -71,10 +71,9 @@ def extract_module(module):
     unk0x40 = gf.read_uint32(fb)
     unk0x44 = gf.read_uint32(fb)
     hd1_delta = file_size
-    tmp = None
 
     # Check if we need to use an hd1 file (no hd2 files just yet...)
-    fb_hd1 = b""
+    fb_hd1 = None
     if os.path.isfile(f"{deploy_path}/{module}.module_hd1"):
         fb_hd1 = open(f"{deploy_path}/{module}.module_hd1", "rb")
 
@@ -86,44 +85,33 @@ def extract_module(module):
     files = []
     for i in range(files_count):
         t1e = FileEntry()
-        if version == 48:
-            t1e.string_offset = gf.read_uint32(fb)        # 0x00
-        elif version == 51:
-            t1e.unk0x00 = gf.read_uint32(fb)              # 0x00
+        t1e.resource_count = gf.read_uint32(fb)           # 0x00
         t1e.parent_file_index = gf.read_int32(fb)         # 0x04
-        t1e.resource_count = gf.read_uint16(fb)           # 0x08
+        t1e.unk0x08 = gf.read_uint16(fb)                  # 0x08
         t1e.block_count = gf.read_uint16(fb)              # 0x0A
-        if version == 48:
-            t1e.first_resource_index = gf.read_uint32(fb) # 0x0C
-            t1e.first_block_index = gf.read_uint32(fb)    # 0x10
-        elif version == 51:
-            t1e.first_block_index = gf.read_uint32(fb)    # 0x0C
-            t1e.first_resource_index = gf.read_uint32(fb) # 0x10
+        t1e.first_block_index = gf.read_uint32(fb)        # 0x0C
+        t1e.first_resource_index = gf.read_uint32(fb)     # 0x10
         t1e.tag = fb.read(4)                              # 0x14
-        t1e.local_data_offset = gf.read_uint32(fb)        # 0x18
-        t1e.unk0x1C = gf.read_uint32(fb)                  # 0x1C
+        t1e.local_data_offset = int.from_bytes(fb.read(6), byteorder='little')        # 0x18
+        t1e.unk0x1F = fb.read(2)                          # 0x1F
+        if t1e.local_data_offset > 100000000000:
+            q = fb.tell()
+            a = 0
         t1e.comp_size = gf.read_uint32(fb)                # 0x20
         t1e.decomp_size = gf.read_uint32(fb)              # 0x24
         t1e.unk0x28 = gf.read_uint32(fb)                  # 0x28
         t1e.unk0x2C = gf.read_uint32(fb)                  # 0x2C
         t1e.unk0x30 = gf.read_uint32(fb)                  # 0x30
-        t1e.hash = fb.read(8).hex().upper()               # 0x34
+        t1e.unk0x34 = gf.read_uint32(fb)                  # 0x34
+        t1e.unk0x38 = gf.read_uint32(fb)                  # 0x38
         t1e.header_size = gf.read_uint32(fb)              # 0x3C
-        if version == 48:
-            t1e.tag_data_size = gf.read_uint32(fb)        # 0x40
-        elif version == 51:
-            t1e.string_offset = gf.read_uint32(fb)        # 0x40
-        t1e.unk0x44 = gf.read_uint32(fb)                  # 0x44 zeros
-        t1e.unk0x48 = gf.read_uint32(fb)                  # 0x48 mostly zeros, sometimes 16
-        t1e.unk0x4C = gf.read_uint32(fb)                  # 0x4C two
-        t1e.unk0x50 = gf.read_uint32(fb)                  # 0x50 uint32
-        t1e.unk0x54 = gf.read_uint32(fb)                  # 0x54 zero
-        if t1e.unk0x44 != 0:
-            a = 0
+        t1e.string_offset = gf.read_uint32(fb)            # 0x40
+        t1e.unk0x44 = gf.read_int32(fb)                   # 0x44, -1 int for one type, not for another
+        t1e.hash = fb.read(0x10).hex().upper()               # 0x48 -> 0x58
+
         files.append(t1e)
 
-    if version == 51:
-        fb.seek(8, 1)
+    fb.seek(8, 1)
     string_table_offset = fb.tell()
     for t1e in files:
         t1e.string = gf.offset_to_string(fb, string_table_offset+t1e.string_offset)
@@ -156,7 +144,7 @@ def extract_module(module):
     data_offset = fb.seek(-1, 1)
 
     decompressor = OodleDecompressor('I:/oo2core_8_win64.dll')
-
+    print(f"File count: {len(files)}")
     for i, t1e in enumerate(files):
         # Cleaning string to be savable
 
@@ -167,8 +155,8 @@ def extract_module(module):
 
         t1e.save_path = f"{unpack_path}{t1e.string}"
 
-        if "[5_bitmap_resource_handle.chunk5]" in t1e.string:
-            continue
+        # if "[5_bitmap_resource_handle.chunk5]" in t1e.string:
+        #     continue
 
 
         os.makedirs('/'.join(t1e.save_path.split('/')[:-1]), exist_ok=True)
@@ -176,6 +164,13 @@ def extract_module(module):
         in_file_offset = data_offset + t1e.local_data_offset
 
         if in_file_offset >= file_size:
+            if not fb_hd1:
+                if len(files) - i > 1000:
+                    raise Exception(f"Files could not be found with debug value {in_file_offset}")
+                else:
+                    continue
+            # if not fb_hd1:
+            #     raise Exception(f"Local data offset fail, trying to get offset {in_file_offset} with file size {file_size} for file index {i}, string {t1e.string}. Rest of files offsets are {[x.local_data_offset for x in files[i:]]}")
             tmp = fb_hd1
             file_data_offset = in_file_offset - hd1_delta
         else:
@@ -195,7 +190,7 @@ def extract_module(module):
                         raise Exception("Skipped data fix")
                     if decomp == False:
                         decomp_save_data += b"\0" * block.decomp_size
-                        print("Warning: failed to decompress block in file: " + t1e.string)
+                        raise Exception("Warning: failed to decompress block in file: " + t1e.string)
                     else:
                         decomp_save_data += decomp
                 else:
@@ -224,9 +219,9 @@ def extract_all_modules():
 
 
 if __name__ == "__main__":
-    unpack_path = "H:/HIU/"
-    deploy_path = "C:/Program Files (x86)/Steam/steamapps/common/MGS Test App 6/deploy/"
-    module_name = "pc/globals/forge/forge_objects-rtx-new"
+    unpack_path = "G:/HaloInfiniteUnpack/"
+    deploy_path = "G:/SteamLibrary/steamapps/common/Halo Infinite/deploy/"
+    module_name = "pc/globals/common-rtx-new"
     # extract_module(module_name)
     extract_all_modules()
 
